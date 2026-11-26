@@ -49,8 +49,12 @@
       </div>
 
       <details class="settings-details">
-        <summary>高级设置（API Key / Google 自定义端点）</summary>
+        <summary>高级设置（Cloudflare Worker 地址 / API Key / 自定义端点）</summary>
         <div class="settings-grid">
+          <label>
+            <span>翻译后端 API 地址（Cloudflare Worker / 同域留空）</span>
+            <input type="text" id="apiBaseUrl" placeholder="同域留空，或填 https://api.你的域名" />
+          </label>
           <label>
             <span>Bing / Azure Translator Key（可选）</span>
             <input type="password" id="bingApiKey" placeholder="留空使用免 Key 模式" />
@@ -70,6 +74,7 @@
         </div>
         <div class="settings-footer">
           <button type="button" class="btn secondary" id="btnSaveConfig">保存设置</button>
+          <button type="button" class="btn secondary" id="btnCheckApi">测试连接</button>
         </div>
       </details>
     </section>
@@ -193,6 +198,7 @@
     <div class="toast hidden" id="toastBanner"></div>
   </div>
 
+  <script src="./config.js"></script>
   <script type="module" src="./workbench.js"></script>
 </body>
 </html>

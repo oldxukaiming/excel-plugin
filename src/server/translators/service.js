@@ -55,10 +55,11 @@ export async function translateText({
     throw new Error(`Unsupported translation engine: ${engine}. Expected 'bing' or 'google'.`);
   }
 
-  const googleApiKey = config.googleApiKey || process.env.GOOGLE_TRANSLATE_API_KEY || '';
-  const googleEndpoint = config.googleEndpoint || process.env.GOOGLE_TRANSLATE_ENDPOINT || '';
-  const bingApiKey = config.bingApiKey || process.env.BING_TRANSLATOR_API_KEY || '';
-  const bingRegion = config.bingRegion || process.env.BING_TRANSLATOR_REGION || '';
+  const runtimeEnv = typeof process !== 'undefined' && process?.env ? process.env : {};
+  const googleApiKey = config.googleApiKey || runtimeEnv.GOOGLE_TRANSLATE_API_KEY || '';
+  const googleEndpoint = config.googleEndpoint || runtimeEnv.GOOGLE_TRANSLATE_ENDPOINT || '';
+  const bingApiKey = config.bingApiKey || runtimeEnv.BING_TRANSLATOR_API_KEY || '';
+  const bingRegion = config.bingRegion || runtimeEnv.BING_TRANSLATOR_REGION || '';
 
   const hasApiKey =
     normalizedEngine === 'google' ? Boolean(googleApiKey.trim()) : Boolean(bingApiKey.trim());

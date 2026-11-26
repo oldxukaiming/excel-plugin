@@ -130,6 +130,11 @@
           </p>
 
           <div class="field">
+            <label for="apiBaseUrl">翻译后端 API 地址（Cloudflare Worker / 同域留空）</label>
+            <input type="text" id="apiBaseUrl" placeholder="同域留空，或填 https://api.你的域名" />
+          </div>
+
+          <div class="field">
             <label for="bingApiKey">Bing / Azure Translator Key（可选）</label>
             <input type="password" id="bingApiKey" placeholder="留空则使用免 Key 模式" />
           </div>
@@ -166,6 +171,7 @@
     </main>
   </div>
 
+  <script src="./config.js"></script>
   <script type="module" src="./taskpane.js"></script>
 </body>
 </html>

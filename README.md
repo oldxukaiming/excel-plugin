@@ -88,7 +88,26 @@ npm run addin:register
 ## 目录结构
 
 - `manifest.xml`：Office 加载项清单文件
-- `src/server/`：Node.js + Express 本地 HTTPS 服务与 Bing / Google 翻译引擎
-- `src/client/`：Office.js 侧边栏界面（`taskpane.*`）、Excel 读写桥接（`excel-bridge.js`）、地址计算（`range-utils.js`）与自定义函数（`functions.*`）
-- `scripts/`：图标生成、HTTPS 证书生成与清单校验脚本
+- `cloudflare/worker.js` & `wrangler.toml`：Cloudflare Workers 一体化部署配置（API + 静态前端）
+- `src/server/`：Node.js + Express 本地 HTTPS/HTTP 服务与 Bing / Google 翻译引擎
+- `src/client/`：Office.js 侧边栏（`taskpane.*`）、独立工作台（`workbench.*`）、浏览器端 `.xlsx` 处理（`xlsx-browser.js`）与自定义函数（`functions.*`）
+- `scripts/`：图标生成、HTTPS 证书生成、静态站点构建与清单校验脚本
 - `tests/`：单元测试与接口集成测试
+
+## 部署到 Cloudflare（推荐，绑定自定义域名 + 免费 HTTPS）
+
+### 方式一：Cloudflare Workers 一体化部署（前后端同域，最简单）
+
+1. 在 Cloudflare Dashboard → **Workers & Pages** → **Create** → 选择连接 GitHub 仓库 `oldxukaiming/excel-plugin`（或在本地执行 `npx wrangler login && npx wrangler deploy`）。
+   - 构建命令：`npm run build:static`（已在 [wrangler.toml](file:///d:/Users/xukai/Desktop/excel-plugin/wrangler.toml) 中配置）
+   - 若要让下载的 `manifest.xml` 自动指向您的域名，可在构建环境变量设置 `PUBLIC_URL=https://你的域名`。
+2. 在 Worker 的 **Settings → Domains & Routes** 添加您的自定义域名（例如 `excel.yourdomain.com`），Cloudflare 会自动签发免费 HTTPS 证书。
+3. 浏览器打开 `https://excel.yourdomain.com` 即可使用（`.xlsx` 文件全程在浏览器本地解析，翻译请求自动走同域 `/api/translate/batch`）。
+
+### 方式二：GitHub Pages 托管前端 + Cloudflare Worker 托管 API
+
+1. 在 GitHub 仓库 **Settings → Pages** 中将 Source 设为 **GitHub Actions**（工作流已内置在 [.github/workflows/deploy-pages.yml](file:///d:/Users/xukai/Desktop/excel-plugin/.github/workflows/deploy-pages.yml)）。
+2. 在 GitHub 仓库 **Settings → Secrets and variables → Actions → Variables** 添加：
+   - `API_BASE_URL`：您的 Cloudflare Worker 地址（例如 `https://api-excel.yourdomain.com`）
+   - `PUBLIC_URL`：前端访问地址（例如 `https://excel.yourdomain.com`）
+   - `PAGES_CNAME`（可选）：前端自定义域名（例如 `excel.yourdomain.com`）

@@ -1,15 +1,8 @@
-const STORAGE_KEY = 'excel-translator-settings-v1';
-
-function readLocalSettings() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed.settings || {};
-  } catch {
-    return {};
-  }
-}
+import {
+  apiFetch,
+  loadTranslatorState,
+  saveTranslatorState
+} from './api-client.js';
 
 /**
  * Translate text inside an Excel cell using Bing or Google engine.
@@ -30,17 +23,22 @@ async function translate(text, targetLang = 'zh-CN', sourceLang = 'auto', engine
     throw new Error('Engine must be "bing" or "google"');
   }
 
-  const response = await fetch('/api/translate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text: String(text),
-      engine: normalizedEngine,
-      from: sourceLang || 'auto',
-      to: targetLang || 'zh-CN',
-      config: readLocalSettings()
-    })
-  });
+  const saved = loadTranslatorState();
+  const response = await apiFetch(
+    '/api/translate',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: String(text),
+        engine: normalizedEngine,
+        from: sourceLang || 'auto',
+        to: targetLang || 'zh-CN',
+        config: saved.settings
+      })
+    },
+    saved.settings
+  );
 
   const data = await response.json();
   if (!response.ok || !data.ok) {

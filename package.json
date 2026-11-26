@@ -9,6 +9,8 @@
     "start:http": "node src/server/index.js --http",
     "dev": "node --watch src/server/index.js",
     "test": "node --test tests",
+    "build:static": "node scripts/build-static.js",
+    "cf:deploy": "npx wrangler deploy",
     "icons": "node scripts/generate-icons.js",
     "cert:gen": "node scripts/generate-certs.js",
     "cert:trust": "node scripts/generate-certs.js --install",

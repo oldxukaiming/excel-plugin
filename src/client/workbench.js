@@ -1,20 +1,18 @@
+import {
+  apiFetch,
+  loadTranslatorState,
+  saveTranslatorState
+} from './api-client.js';
 import { computeTargetAddress } from './range-utils.js';
+import { inspectXlsxClient, translateXlsxClient } from './xlsx-browser.js';
 
-const STORAGE_KEY = 'excel-translator-settings-v1';
-
+const loaded = loadTranslatorState();
 const state = {
-  engine: 'bing',
-  from: 'auto',
-  to: 'zh-CN',
+  ...loaded,
+  fileArrayBuffer: null,
   fileBase64: '',
   fileName: '',
-  inspectedSheets: [],
-  settings: {
-    bingApiKey: '',
-    bingRegion: '',
-    googleApiKey: '',
-    googleEndpoint: ''
-  }
+  inspectedSheets: []
 };
 
 const $ = (id) => document.getElementById(id);
@@ -23,36 +21,6 @@ function showToast(msg, type = 'info') {
   const el = $('toastBanner');
   el.textContent = msg;
   el.className = `toast ${type}`;
-}
-
-function loadSettings() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (parsed.engine === 'bing' || parsed.engine === 'google') state.engine = parsed.engine;
-    if (parsed.from) state.from = parsed.from;
-    if (parsed.to) state.to = parsed.to;
-    if (parsed.settings) state.settings = { ...state.settings, ...parsed.settings };
-  } catch {
-    // ignore
-  }
-}
-
-function saveSettings() {
-  try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        engine: state.engine,
-        from: state.from,
-        to: state.to,
-        settings: state.settings
-      })
-    );
-  } catch {
-    // ignore
-  }
 }
 
 function updateEngineUI() {
@@ -82,22 +50,25 @@ function updateXlsxMappingPreview() {
 
 async function checkHealth() {
   try {
-    const res = await fetch('/api/health');
+    const res = await apiFetch('/api/health', {}, state.settings);
     if (res.ok) {
-      $('serverStatus').textContent = '本地翻译服务在线';
+      const data = await res.json();
+      $('serverStatus').textContent =
+        data.runtime === 'cloudflare-workers' ? 'Cloudflare 边缘服务在线' : '翻译服务在线';
       $('serverStatus').className = 'server-pill online';
-      return;
+      return true;
     }
   } catch {
     // ignore
   }
   $('serverStatus').textContent = '服务未连接';
   $('serverStatus').className = 'server-pill offline';
+  return false;
 }
 
 async function loadLanguages() {
   try {
-    const res = await fetch('/api/languages');
+    const res = await apiFetch('/api/languages', {}, state.settings);
     const data = await res.json();
     const langs = data.languages || [];
     $('fromLang').innerHTML = '';
@@ -120,7 +91,18 @@ async function loadLanguages() {
     $('fromLang').value = state.from;
     $('toLang').value = state.to;
   } catch {
-    // ignore
+    // Fallback list when API is temporarily unreachable
+    $('fromLang').innerHTML = `
+      <option value="auto">自动检测 (Auto)</option>
+      <option value="en">英语 (English)</option>
+      <option value="zh-CN">简体中文 (zh-CN)</option>
+      <option value="ja">日语 (日本語)</option>
+    `;
+    $('toLang').innerHTML = `
+      <option value="zh-CN">简体中文 (zh-CN)</option>
+      <option value="en">英语 (English)</option>
+      <option value="ja">日语 (日本語)</option>
+    `;
   }
 }
 
@@ -216,36 +198,57 @@ async function handleSelectedFile(file) {
   }
 
   const buf = await file.arrayBuffer();
+  state.fileArrayBuffer = buf;
   state.fileBase64 = arrayBufferToBase64(buf);
   state.fileName = file.name;
   $('fileSummary').textContent = `已选择: ${file.name} (${Math.round(file.size / 1024)} KB)`;
 
   try {
-    const res = await fetch('/api/xlsx/inspect', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileBase64: state.fileBase64 })
-    });
-    const data = await res.json();
-    if (res.ok && data.ok && Array.isArray(data.sheets)) {
-      state.inspectedSheets = data.sheets;
-      $('xlsxSheet').innerHTML = '';
-      data.sheets.forEach((s) => {
-        const opt = document.createElement('option');
-        opt.value = s.name;
-        opt.textContent = `${s.name} (${s.rowCount}行 × ${s.columnCount}列)`;
-        $('xlsxSheet').appendChild(opt);
-      });
-      renderXlsxPreview($('xlsxSheet').value);
-      showToast(`已读取工作簿，共 ${data.sheets.length} 个工作表`, 'info');
+    let data;
+    try {
+      data = await inspectXlsxClient(buf);
+    } catch {
+      const res = await apiFetch(
+        '/api/xlsx/inspect',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileBase64: state.fileBase64 })
+        },
+        state.settings
+      );
+      data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
     }
+
+    state.inspectedSheets = data.sheets || [];
+    $('xlsxSheet').innerHTML = '';
+    state.inspectedSheets.forEach((s) => {
+      const opt = document.createElement('option');
+      opt.value = s.name;
+      opt.textContent = `${s.name} (${s.rowCount}行 × ${s.columnCount}列)`;
+      $('xlsxSheet').appendChild(opt);
+    });
+    renderXlsxPreview($('xlsxSheet').value);
+    showToast(`已读取工作簿，共 ${state.inspectedSheets.length} 个工作表`, 'info');
   } catch (err) {
     showToast(`解析工作表失败: ${err.message}`, 'error');
   }
 }
 
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function handleTranslateXlsx() {
-  if (!state.fileBase64) {
+  if (!state.fileArrayBuffer) {
     showToast('请先选择要翻译的 .xlsx 文件', 'error');
     return;
   }
@@ -254,41 +257,73 @@ async function handleTranslateXlsx() {
   btn.disabled = true;
   btn.textContent = '翻译处理中...';
 
+  const sheetName = $('xlsxSheet').value;
+  const sourceAddress = $('xlsxSource').value.trim() || 'A1';
+  const targetMode = $('xlsxMode').value;
+  const customTargetAddress = $('xlsxCustomTarget').value.trim();
+
   try {
-    const res = await fetch('/api/xlsx/translate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fileBase64: state.fileBase64,
-        sheetName: $('xlsxSheet').value,
-        sourceAddress: $('xlsxSource').value.trim() || 'A1',
-        targetMode: $('xlsxMode').value,
-        customTargetAddress: $('xlsxCustomTarget').value.trim(),
+    let result;
+    try {
+      result = await translateXlsxClient({
+        arrayBuffer: state.fileArrayBuffer,
+        sheetName,
+        sourceAddress,
+        targetMode,
+        customTargetAddress,
         engine: state.engine,
         from: state.from,
         to: state.to,
-        config: state.settings
-      })
-    });
-    const data = await res.json();
-    if (!res.ok || !data.ok) {
-      throw new Error(data.error || `HTTP ${res.status}`);
+        settings: state.settings,
+        onProgress: (done, total) => {
+          btn.textContent = `翻译中 (${done}/${total})...`;
+        }
+      });
+    } catch (clientErr) {
+      // Fall back to Node server endpoint only when client-side ExcelJS failed to load
+      if (!String(clientErr.message).includes('ExcelJS') && !String(clientErr.message).includes('Failed to load')) {
+        throw clientErr;
+      }
+      const res = await apiFetch(
+        '/api/xlsx/translate',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileBase64: state.fileBase64,
+            sheetName,
+            sourceAddress,
+            targetMode,
+            customTargetAddress,
+            engine: state.engine,
+            from: state.from,
+            to: state.to,
+            config: state.settings
+          })
+        },
+        state.settings
+      );
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      result = {
+        blob: base64ToBlob(
+          data.fileBase64,
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        ),
+        sourceRange: data.sourceRange,
+        targetRange: data.targetRange,
+        translatedCount: data.translatedCount,
+        failedCount: data.failedCount
+      };
     }
 
-    const blob = base64ToBlob(
-      data.fileBase64,
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    );
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
     const outName = state.fileName.replace(/\.xlsx$/i, '') + `_translated_${state.engine}.xlsx`;
-    a.href = url;
-    a.download = outName;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(result.blob, outName);
 
     showToast(
-      `已通过 ${state.engine === 'bing' ? 'Bing' : 'Google'} 完成 ${data.sourceRange} → ${data.targetRange}（共 ${data.translatedCount} 格），已下载 ${outName}`,
+      `已通过 ${state.engine === 'bing' ? 'Bing' : 'Google'} 完成 ${result.sourceRange} → ${result.targetRange}（共 ${result.translatedCount} 格），已下载 ${outName}`,
       'success'
     );
   } catch (err) {
@@ -302,7 +337,7 @@ async function handleTranslateXlsx() {
 async function handleLiveRead() {
   try {
     const addr = encodeURIComponent($('liveSource').value.trim());
-    const res = await fetch(`/api/excel/selection?address=${addr}`);
+    const res = await apiFetch(`/api/excel/selection?address=${addr}`, {}, state.settings);
     const data = await res.json();
     if (!res.ok || !data.ok) {
       throw new Error(data.error || `HTTP ${res.status}`);
@@ -312,7 +347,7 @@ async function handleLiveRead() {
     preview.textContent = `工作簿: ${data.workbook} | 工作表: ${data.sheet} | 选区: ${data.address}\n内容: ${JSON.stringify(data.values)}`;
     showToast(`已读取 Excel 选区 ${data.address}`, 'success');
   } catch (err) {
-    showToast(`无法读取 Excel 窗口: ${err.message}`, 'error');
+    showToast(`无法读取 Excel 窗口（仅本地 Node 服务支持此项）: ${err.message}`, 'error');
   }
 }
 
@@ -322,19 +357,23 @@ async function handleLiveFill() {
   btn.textContent = '翻译写入中...';
 
   try {
-    const res = await fetch('/api/excel/translate-fill', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sourceAddress: $('liveSource').value.trim(),
-        targetMode: $('liveMode').value,
-        customTargetAddress: $('liveCustomTarget').value.trim(),
-        engine: state.engine,
-        from: state.from,
-        to: state.to,
-        config: state.settings
-      })
-    });
+    const res = await apiFetch(
+      '/api/excel/translate-fill',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceAddress: $('liveSource').value.trim(),
+          targetMode: $('liveMode').value,
+          customTargetAddress: $('liveCustomTarget').value.trim(),
+          engine: state.engine,
+          from: state.from,
+          to: state.to,
+          config: state.settings
+        })
+      },
+      state.settings
+    );
     const data = await res.json();
     if (!res.ok || !data.ok) {
       throw new Error(data.error || `HTTP ${res.status}`);
@@ -347,7 +386,7 @@ async function handleLiveFill() {
       'success'
     );
   } catch (err) {
-    showToast(`写入 Excel 失败: ${err.message}`, 'error');
+    showToast(`写入 Excel 失败（仅本地 Node 服务支持此项）: ${err.message}`, 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = '翻译并写入 Excel 目标格';
@@ -378,17 +417,21 @@ async function handleTranslatePaste() {
   btn.textContent = '翻译中...';
 
   try {
-    const res = await fetch('/api/translate/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        texts: nonEmptyIdx.map((i) => flat[i]),
-        engine: state.engine,
-        from: state.from,
-        to: state.to,
-        config: state.settings
-      })
-    });
+    const res = await apiFetch(
+      '/api/translate/batch',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          texts: nonEmptyIdx.map((i) => flat[i]),
+          engine: state.engine,
+          from: state.from,
+          to: state.to,
+          config: state.settings
+        })
+      },
+      state.settings
+    );
     const data = await res.json();
     if (!res.ok || !data.ok) {
       throw new Error(data.error || `HTTP ${res.status}`);
@@ -433,18 +476,18 @@ function bindEvents() {
     btn.addEventListener('click', () => {
       state.engine = btn.dataset.engine;
       updateEngineUI();
-      saveSettings();
+      saveTranslatorState(state);
     });
   });
 
   $('fromLang').addEventListener('change', () => {
     state.from = $('fromLang').value;
-    saveSettings();
+    saveTranslatorState(state);
   });
 
   $('toLang').addEventListener('change', () => {
     state.to = $('toLang').value;
-    saveSettings();
+    saveTranslatorState(state);
   });
 
   $('btnSwap').addEventListener('click', () => {
@@ -457,19 +500,31 @@ function bindEvents() {
     state.to = prev;
     $('fromLang').value = state.from;
     $('toLang').value = state.to;
-    saveSettings();
+    saveTranslatorState(state);
   });
 
-  $('btnSaveConfig').addEventListener('click', () => {
+  $('btnSaveConfig').addEventListener('click', async () => {
     state.settings = {
+      apiBaseUrl: $('apiBaseUrl').value.trim(),
       bingApiKey: $('bingApiKey').value.trim(),
       bingRegion: $('bingRegion').value.trim(),
       googleApiKey: $('googleApiKey').value.trim(),
       googleEndpoint: $('googleEndpoint').value.trim()
     };
-    saveSettings();
+    saveTranslatorState(state);
     updateEngineUI();
-    showToast('设置已保存', 'success');
+    const ok = await checkHealth();
+    if (ok) {
+      await loadLanguages();
+      showToast('设置已保存且翻译服务连接正常', 'success');
+    } else {
+      showToast('设置已保存，但当前无法连接到配置的翻译服务', 'error');
+    }
+  });
+
+  $('btnCheckApi').addEventListener('click', async () => {
+    const ok = await checkHealth();
+    showToast(ok ? '翻译服务连接正常' : '无法连接到翻译服务，请检查 API 地址', ok ? 'success' : 'error');
   });
 
   document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -519,7 +574,7 @@ function bindEvents() {
 }
 
 async function init() {
-  loadSettings();
+  $('apiBaseUrl').value = state.settings.apiBaseUrl;
   $('bingApiKey').value = state.settings.bingApiKey;
   $('bingRegion').value = state.settings.bingRegion;
   $('googleApiKey').value = state.settings.googleApiKey;

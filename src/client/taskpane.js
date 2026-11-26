@@ -1,4 +1,9 @@
 import {
+  apiFetch,
+  loadTranslatorState,
+  saveTranslatorState
+} from './api-client.js';
+import {
   isExcelHostReady,
   readCurrentSelection,
   readRangeValues,
@@ -7,22 +12,12 @@ import {
 } from './excel-bridge.js';
 import { computeTargetAddress } from './range-utils.js';
 
-const STORAGE_KEY = 'excel-translator-settings-v1';
-
+const loaded = loadTranslatorState();
 const state = {
-  engine: 'bing',
-  from: 'auto',
-  to: 'zh-CN',
+  ...loaded,
   sourceAddress: 'A1',
-  targetMode: 'below',
   customTargetAddress: '',
-  previewText: '',
-  settings: {
-    bingApiKey: '',
-    bingRegion: '',
-    googleApiKey: '',
-    googleEndpoint: ''
-  }
+  previewText: ''
 };
 
 const els = {
@@ -52,6 +47,7 @@ const els = {
   btnToggleSettings: document.getElementById('btnToggleSettings'),
   settingsChevron: document.getElementById('settingsChevron'),
   settingsBody: document.getElementById('settingsBody'),
+  apiBaseUrl: document.getElementById('apiBaseUrl'),
   bingApiKey: document.getElementById('bingApiKey'),
   bingRegion: document.getElementById('bingRegion'),
   googleApiKey: document.getElementById('googleApiKey'),
@@ -60,40 +56,8 @@ const els = {
   btnTestServer: document.getElementById('btnTestServer')
 };
 
-function loadSavedSettings() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (parsed.engine === 'bing' || parsed.engine === 'google') {
-      state.engine = parsed.engine;
-    }
-    if (parsed.from) state.from = parsed.from;
-    if (parsed.to) state.to = parsed.to;
-    if (parsed.targetMode) state.targetMode = parsed.targetMode;
-    if (parsed.settings) {
-      state.settings = { ...state.settings, ...parsed.settings };
-    }
-  } catch {
-    // Ignore invalid localStorage payload
-  }
-}
-
 function persistSettings() {
-  try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        engine: state.engine,
-        from: state.from,
-        to: state.to,
-        targetMode: state.targetMode,
-        settings: state.settings
-      })
-    );
-  } catch {
-    // Ignore storage quota errors
-  }
+  saveTranslatorState(state);
 }
 
 function showStatus(message, type = 'info') {
@@ -165,7 +129,7 @@ async function syncFromExcelSelection() {
 
 async function loadLanguages() {
   try {
-    const res = await fetch('/api/languages');
+    const res = await apiFetch('/api/languages', {}, state.settings);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const langs = data.languages || [];
@@ -207,32 +171,36 @@ async function loadLanguages() {
 
 async function checkServerHealth() {
   try {
-    const res = await fetch('/api/health');
+    const res = await apiFetch('/api/health', {}, state.settings);
     if (res.ok) {
       els.serverStatusDot.className = 'status-dot online';
-      els.serverStatusDot.title = '本地翻译服务在线';
+      els.serverStatusDot.title = '翻译服务在线';
       return true;
     }
   } catch {
     // ignore
   }
   els.serverStatusDot.className = 'status-dot offline';
-  els.serverStatusDot.title = '本地翻译服务未连接';
+  els.serverStatusDot.title = '翻译服务未连接';
   return false;
 }
 
 async function callBatchTranslate(texts) {
-  const res = await fetch('/api/translate/batch', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      texts,
-      engine: state.engine,
-      from: state.from,
-      to: state.to,
-      config: state.settings
-    })
-  });
+  const res = await apiFetch(
+    '/api/translate/batch',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        texts,
+        engine: state.engine,
+        from: state.from,
+        to: state.to,
+        config: state.settings
+      })
+    },
+    state.settings
+  );
 
   const data = await res.json();
   if (!res.ok || !data.ok) {
@@ -416,6 +384,7 @@ function bindEvents() {
 
   els.btnSaveSettings.addEventListener('click', () => {
     state.settings = {
+      apiBaseUrl: els.apiBaseUrl.value.trim(),
       bingApiKey: els.bingApiKey.value.trim(),
       bingRegion: els.bingRegion.value.trim(),
       googleApiKey: els.googleApiKey.value.trim(),
@@ -423,20 +392,20 @@ function bindEvents() {
     };
     persistSettings();
     updateEngineUI();
+    checkServerHealth();
     showStatus('高级设置已保存', 'success');
   });
 
   els.btnTestServer.addEventListener('click', async () => {
     const ok = await checkServerHealth();
-    showStatus(ok ? '本地翻译服务连接正常' : '无法连接到本地翻译服务', ok ? 'success' : 'error');
+    showStatus(ok ? '翻译服务连接正常' : '无法连接到翻译服务', ok ? 'success' : 'error');
   });
 }
 
 async function init() {
-  loadSavedSettings();
-
   // Sync settings inputs
   els.targetMode.value = state.targetMode;
+  els.apiBaseUrl.value = state.settings.apiBaseUrl;
   els.bingApiKey.value = state.settings.bingApiKey;
   els.bingRegion.value = state.settings.bingRegion;
   els.googleApiKey.value = state.settings.googleApiKey;
