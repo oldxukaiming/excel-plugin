@@ -1,7 +1,12 @@
 import {
   apiFetch,
+  clearAuthSession,
+  fetchAuthStatus,
+  loadAuthSession,
   loadTranslatorState,
-  saveTranslatorState
+  loginWithCredentials,
+  saveTranslatorState,
+  setUnauthorizedHandler
 } from './api-client.js';
 import { computeTargetAddress } from './range-utils.js';
 import { inspectXlsxClient, translateXlsxClient } from './xlsx-browser.js';
@@ -12,7 +17,11 @@ const state = {
   fileArrayBuffer: null,
   fileBase64: '',
   fileName: '',
-  inspectedSheets: []
+  inspectedSheets: [],
+  showAllRows: false,
+  authRequired: false,
+  authenticated: true,
+  username: ''
 };
 
 const $ = (id) => document.getElementById(id);
@@ -126,10 +135,41 @@ function base64ToBlob(base64, mimeType) {
   return new Blob([bytes], { type: mimeType });
 }
 
+function updateAuthUI() {
+  const locked = state.authRequired && !state.authenticated;
+  $('authGatePanel').classList.toggle('hidden', !locked);
+  $('workspaceContent').classList.toggle('hidden', locked);
+
+  if (state.authRequired && state.authenticated) {
+    $('userPill').classList.remove('hidden');
+    $('userLabel').textContent = state.username || loadAuthSession().username || '已登录';
+  } else {
+    $('userPill').classList.add('hidden');
+  }
+}
+
+async function refreshAuthAndData() {
+  try {
+    const authInfo = await fetchAuthStatus(state.settings);
+    state.authRequired = Boolean(authInfo.authRequired);
+    state.authenticated = Boolean(authInfo.authenticated);
+    state.username = authInfo.username || '';
+  } catch {
+    // Keep current state if offline
+  }
+  updateAuthUI();
+
+  if (!state.authRequired || state.authenticated) {
+    await loadLanguages();
+  }
+}
+
 function renderXlsxPreview(sheetName) {
   const sheet = state.inspectedSheets.find((s) => s.name === sheetName) || state.inspectedSheets[0];
   const wrap = $('xlsxPreviewWrap');
   const table = $('xlsxPreviewTable');
+  const toggleBtn = $('btnToggleAllRows');
+
   if (!sheet || !Array.isArray(sheet.previewRows) || sheet.previewRows.length === 0) {
     wrap.classList.add('hidden');
     return;
@@ -140,6 +180,16 @@ function renderXlsxPreview(sheetName) {
   const shownCols = (sheet.columnRanges || []).length;
   $('xlsxPreviewTitle').textContent =
     `工作表「${sheet.name}」有效区域 ${sheet.rowCount} 行 × ${sheet.columnCount} 列（当前预览 ${shownRows} 行 × ${shownCols} 列，点击单元格或列标可选区）`;
+
+  if (sheet.rowCount > shownRows || state.showAllRows) {
+    toggleBtn.classList.remove('hidden');
+    toggleBtn.textContent = state.showAllRows
+      ? '仅显示前 20 行'
+      : `展开全部行（共 ${sheet.rowCount} 行）`;
+  } else {
+    toggleBtn.classList.add('hidden');
+  }
+
   table.innerHTML = '';
 
   const thead = document.createElement('thead');
@@ -170,6 +220,7 @@ function renderXlsxPreview(sheetName) {
   table.appendChild(thead);
 
   const tbody = document.createElement('tbody');
+  const fragment = document.createDocumentFragment();
   sheet.previewRows.forEach((rowVals, rIdx) => {
     const tr = document.createElement('tr');
     const rowTh = document.createElement('th');
@@ -189,9 +240,36 @@ function renderXlsxPreview(sheetName) {
       });
       tr.appendChild(td);
     });
-    tbody.appendChild(tr);
+    fragment.appendChild(tr);
   });
+  tbody.appendChild(fragment);
   table.appendChild(tbody);
+}
+
+async function inspectCurrentWorkbook() {
+  const maxPreviewRows = state.showAllRows ? Infinity : 20;
+  let data;
+  try {
+    data = await inspectXlsxClient(state.fileArrayBuffer, { maxPreviewRows });
+  } catch {
+    const res = await apiFetch(
+      '/api/xlsx/inspect',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileBase64: state.fileBase64,
+          maxPreviewRows: state.showAllRows ? 'all' : 20
+        })
+      },
+      state.settings
+    );
+    data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+  }
+  state.inspectedSheets = data.sheets || [];
 }
 
 async function handleSelectedFile(file) {
@@ -205,29 +283,12 @@ async function handleSelectedFile(file) {
   state.fileArrayBuffer = buf;
   state.fileBase64 = arrayBufferToBase64(buf);
   state.fileName = file.name;
+  state.showAllRows = false;
   $('fileSummary').textContent = `已选择: ${file.name} (${Math.round(file.size / 1024)} KB)`;
 
   try {
-    let data;
-    try {
-      data = await inspectXlsxClient(buf);
-    } catch {
-      const res = await apiFetch(
-        '/api/xlsx/inspect',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileBase64: state.fileBase64 })
-        },
-        state.settings
-      );
-      data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
-    }
+    await inspectCurrentWorkbook();
 
-    state.inspectedSheets = data.sheets || [];
     $('xlsxSheet').innerHTML = '';
     state.inspectedSheets.forEach((s) => {
       const opt = document.createElement('option');
@@ -476,6 +537,41 @@ async function handleTranslatePaste() {
 }
 
 function bindEvents() {
+  $('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = $('loginError');
+    const btn = $('btnLoginSubmit');
+    errEl.classList.add('hidden');
+    btn.disabled = true;
+    btn.textContent = '登录中...';
+
+    try {
+      const username = $('loginUsername').value.trim();
+      const password = $('loginPassword').value;
+      const res = await loginWithCredentials(username, password, state.settings);
+      state.authenticated = true;
+      state.username = res.username || username;
+      $('loginPassword').value = '';
+      updateAuthUI();
+      await loadLanguages();
+      showToast(`欢迎回来，${state.username}`, 'success');
+    } catch (err) {
+      errEl.textContent = err.message || '登录失败';
+      errEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '登录进入工作台';
+    }
+  });
+
+  $('btnLogout').addEventListener('click', () => {
+    clearAuthSession();
+    state.authenticated = false;
+    state.username = '';
+    updateAuthUI();
+    showToast('已退出登录', 'info');
+  });
+
   [$('btnBing'), $('btnGoogle')].forEach((btn) => {
     btn.addEventListener('click', () => {
       state.engine = btn.dataset.engine;
@@ -519,7 +615,7 @@ function bindEvents() {
     updateEngineUI();
     const ok = await checkHealth();
     if (ok) {
-      await loadLanguages();
+      await refreshAuthAndData();
       showToast('设置已保存且翻译服务连接正常', 'success');
     } else {
       showToast('设置已保存，但当前无法连接到配置的翻译服务', 'error');
@@ -554,6 +650,22 @@ function bindEvents() {
   $('xlsxFileInput').addEventListener('change', (e) => handleSelectedFile(e.target.files[0]));
 
   $('xlsxSheet').addEventListener('change', () => renderXlsxPreview($('xlsxSheet').value));
+  $('btnToggleAllRows').addEventListener('click', async () => {
+    if (!state.fileArrayBuffer) return;
+    const btn = $('btnToggleAllRows');
+    btn.disabled = true;
+    state.showAllRows = !state.showAllRows;
+    try {
+      const selectedSheet = $('xlsxSheet').value;
+      await inspectCurrentWorkbook();
+      renderXlsxPreview(selectedSheet);
+    } catch (err) {
+      state.showAllRows = !state.showAllRows;
+      showToast(`切换预览行数失败: ${err.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
   $('xlsxSource').addEventListener('input', updateXlsxMappingPreview);
   $('xlsxMode').addEventListener('change', updateXlsxMappingPreview);
   $('xlsxCustomTarget').addEventListener('input', updateXlsxMappingPreview);
@@ -578,6 +690,13 @@ function bindEvents() {
 }
 
 async function init() {
+  setUnauthorizedHandler(() => {
+    state.authRequired = true;
+    state.authenticated = false;
+    updateAuthUI();
+    showToast('登录已过期或未授权，请重新登录', 'error');
+  });
+
   $('apiBaseUrl').value = state.settings.apiBaseUrl;
   $('bingApiKey').value = state.settings.bingApiKey;
   $('bingRegion').value = state.settings.bingRegion;
@@ -587,7 +706,7 @@ async function init() {
   bindEvents();
   updateEngineUI();
   updateXlsxMappingPreview();
-  await Promise.all([checkHealth(), loadLanguages()]);
+  await Promise.all([checkHealth(), refreshAuthAndData()]);
 }
 
 init();

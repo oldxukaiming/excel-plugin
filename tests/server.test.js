@@ -150,4 +150,36 @@ describe('express server API and static hosting', () => {
     assert.equal(res.status, 400);
     assert.equal(res.json().ok, false);
   });
+
+  it('enforces Express auth when AUTH_PASSWORD is set', async () => {
+    const prevUser = process.env.AUTH_USERNAME;
+    const prevPass = process.env.AUTH_PASSWORD;
+    process.env.AUTH_USERNAME = 'alice';
+    process.env.AUTH_PASSWORD = 'secret-pass';
+
+    try {
+      const blocked = await dispatchRequest(app, { method: 'GET', url: '/api/languages' });
+      assert.equal(blocked.status, 401);
+
+      const login = await dispatchRequest(app, {
+        method: 'POST',
+        url: '/api/auth/login',
+        body: { username: 'alice', password: 'secret-pass' }
+      });
+      assert.equal(login.status, 200);
+      const { token } = login.json();
+
+      const allowed = await dispatchRequest(app, {
+        method: 'GET',
+        url: '/api/languages',
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(allowed.status, 200);
+    } finally {
+      if (prevUser === undefined) delete process.env.AUTH_USERNAME;
+      else process.env.AUTH_USERNAME = prevUser;
+      if (prevPass === undefined) delete process.env.AUTH_PASSWORD;
+      else process.env.AUTH_PASSWORD = prevPass;
+    }
+  });
 });

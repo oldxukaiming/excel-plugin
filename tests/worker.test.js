@@ -61,4 +61,86 @@ describe('cloudflare worker handler', () => {
     assert.equal(pageRes.status, 200);
     assert.equal(await pageRes.text(), '<html>Workbench</html>');
   });
+
+  it('enforces AUTH_USERNAME and AUTH_PASSWORD when configured', async () => {
+    const env = {
+      AUTH_USERNAME: 'oldxukaiming',
+      AUTH_PASSWORD: 'super-secret-password'
+    };
+
+    const health = await handleWorkerRequest(new Request('https://example.com/api/health'), env);
+    assert.equal(health.status, 200);
+    assert.equal((await health.json()).authRequired, true);
+
+    const statusBefore = await handleWorkerRequest(
+      new Request('https://example.com/api/auth/status'),
+      env
+    );
+    const statusJson = await statusBefore.json();
+    assert.equal(statusJson.authRequired, true);
+    assert.equal(statusJson.authenticated, false);
+
+    // Unauthenticated API access must return 401
+    const unauthLang = await handleWorkerRequest(
+      new Request('https://example.com/api/languages'),
+      env
+    );
+    assert.equal(unauthLang.status, 401);
+
+    // Wrong password rejected
+    const badLogin = await handleWorkerRequest(
+      new Request('https://example.com/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'oldxukaiming', password: 'wrong' })
+      }),
+      env
+    );
+    assert.equal(badLogin.status, 401);
+
+    // Correct credentials return signed session token
+    const goodLogin = await handleWorkerRequest(
+      new Request('https://example.com/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'oldxukaiming', password: 'super-secret-password' })
+      }),
+      env
+    );
+    assert.equal(goodLogin.status, 200);
+    const loginJson = await goodLogin.json();
+    assert.equal(loginJson.ok, true);
+    assert.equal(loginJson.username, 'oldxukaiming');
+    assert.ok(loginJson.token && loginJson.token.includes('.'));
+
+    // Tampered token rejected
+    const tampered = await handleWorkerRequest(
+      new Request('https://example.com/api/languages', {
+        headers: { Authorization: `Bearer ${loginJson.token}x` }
+      }),
+      env
+    );
+    assert.equal(tampered.status, 401);
+
+    // Valid Bearer token succeeds
+    const authedLang = await handleWorkerRequest(
+      new Request('https://example.com/api/languages', {
+        headers: { Authorization: `Bearer ${loginJson.token}` }
+      }),
+      env
+    );
+    assert.equal(authedLang.status, 200);
+
+    // HTTP Basic auth also succeeds
+    const basicHeader = `Basic ${btoa('oldxukaiming:super-secret-password')}`;
+    const basicTranslate = await handleWorkerRequest(
+      new Request('https://example.com/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: basicHeader },
+        body: JSON.stringify({ text: '   ', engine: 'google' })
+      }),
+      env
+    );
+    assert.equal(basicTranslate.status, 200);
+  });
 });

@@ -21,6 +21,24 @@
     </header>
 
     <main class="app-main">
+      <!-- Auth Gate Card (shown when server requires login) -->
+      <section class="card hidden" id="taskpaneAuthCard">
+        <div class="section-header">
+          <span class="section-title">站点登录认证</span>
+        </div>
+        <form id="taskpaneLoginForm">
+          <div class="field">
+            <label for="tpLoginUser">用户名</label>
+            <input type="text" id="tpLoginUser" placeholder="默认 admin 或设定用户名" required />
+          </div>
+          <div class="field">
+            <label for="tpLoginPass">密码</label>
+            <input type="password" id="tpLoginPass" placeholder="请输入访问密码" required />
+          </div>
+          <button type="submit" class="primary-btn" id="btnTpLogin">登录</button>
+        </form>
+      </section>
+
       <!-- Engine Switcher -->
       <section class="card">
         <div class="section-header">

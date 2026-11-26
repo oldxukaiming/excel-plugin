@@ -1,7 +1,11 @@
 import {
   apiFetch,
+  clearAuthSession,
+  fetchAuthStatus,
   loadTranslatorState,
-  saveTranslatorState
+  loginWithCredentials,
+  saveTranslatorState,
+  setUnauthorizedHandler
 } from './api-client.js';
 import {
   isExcelHostReady,
@@ -53,8 +57,24 @@ const els = {
   googleApiKey: document.getElementById('googleApiKey'),
   googleEndpoint: document.getElementById('googleEndpoint'),
   btnSaveSettings: document.getElementById('btnSaveSettings'),
-  btnTestServer: document.getElementById('btnTestServer')
+  btnTestServer: document.getElementById('btnTestServer'),
+  taskpaneAuthCard: document.getElementById('taskpaneAuthCard'),
+  taskpaneLoginForm: document.getElementById('taskpaneLoginForm'),
+  tpLoginUser: document.getElementById('tpLoginUser'),
+  tpLoginPass: document.getElementById('tpLoginPass'),
+  btnTpLogin: document.getElementById('btnTpLogin')
 };
+
+async function syncTaskpaneAuth() {
+  try {
+    const info = await fetchAuthStatus(state.settings);
+    const needLogin = Boolean(info.authRequired && !info.authenticated);
+    els.taskpaneAuthCard.classList.toggle('hidden', !needLogin);
+    return !needLogin;
+  } catch {
+    return true;
+  }
+}
 
 function persistSettings() {
   saveTranslatorState(state);
@@ -400,9 +420,36 @@ function bindEvents() {
     const ok = await checkServerHealth();
     showStatus(ok ? '翻译服务连接正常' : '无法连接到翻译服务', ok ? 'success' : 'error');
   });
+
+  els.taskpaneLoginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearStatus();
+    els.btnTpLogin.disabled = true;
+    try {
+      await loginWithCredentials(
+        els.tpLoginUser.value.trim(),
+        els.tpLoginPass.value,
+        state.settings
+      );
+      els.tpLoginPass.value = '';
+      els.taskpaneAuthCard.classList.add('hidden');
+      await loadLanguages();
+      showStatus('登录成功', 'success');
+    } catch (err) {
+      showStatus(`登录失败: ${err.message}`, 'error');
+    } finally {
+      els.btnTpLogin.disabled = false;
+    }
+  });
 }
 
 async function init() {
+  setUnauthorizedHandler(() => {
+    clearAuthSession();
+    els.taskpaneAuthCard.classList.remove('hidden');
+    showStatus('访问需要认证，请先输入用户名和密码登录', 'error');
+  });
+
   // Sync settings inputs
   els.targetMode.value = state.targetMode;
   els.apiBaseUrl.value = state.settings.apiBaseUrl;
@@ -415,7 +462,10 @@ async function init() {
   updateEngineUI();
   updateMappingPreview();
 
-  await Promise.all([loadLanguages(), checkServerHealth()]);
+  const [, authed] = await Promise.all([checkServerHealth(), syncTaskpaneAuth()]);
+  if (authed) {
+    await loadLanguages();
+  }
 
   if (typeof globalThis.Office !== 'undefined' && typeof globalThis.Office.onReady === 'function') {
     globalThis.Office.onReady(async (info) => {

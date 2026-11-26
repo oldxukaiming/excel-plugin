@@ -37,11 +37,11 @@ export async function ensureBrowserExcelJS() {
   return excelJsLoadPromise;
 }
 
-export async function inspectXlsxClient(arrayBuffer) {
+export async function inspectXlsxClient(arrayBuffer, options = {}) {
   const ExcelJS = await ensureBrowserExcelJS();
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(arrayBuffer);
-  return inspectWorkbook(workbook);
+  return inspectWorkbook(workbook, options);
 }
 
 /**

@@ -102,7 +102,17 @@ npm run addin:register
    - 构建命令：`npm run build:static`（已在 [wrangler.toml](file:///d:/Users/xukai/Desktop/excel-plugin/wrangler.toml) 中配置）
    - 若要让下载的 `manifest.xml` 自动指向您的域名，可在构建环境变量设置 `PUBLIC_URL=https://你的域名`。
 2. 在 Worker 的 **Settings → Domains & Routes** 添加您的自定义域名（例如 `excel.yourdomain.com`），Cloudflare 会自动签发免费 HTTPS 证书。
-3. 浏览器打开 `https://excel.yourdomain.com` 即可使用（`.xlsx` 文件全程在浏览器本地解析，翻译请求自动走同域 `/api/translate/batch`）。
+3. **强烈建议设置访问用户名与密码（防止公共访问消耗额度）**：
+   - 在 Worker 的 **Settings → Variables and Secrets** 添加：
+     - `AUTH_USERNAME`：您的登录用户名（例如 `oldxukaiming`，不设则默认为 `admin`）
+     - `AUTH_PASSWORD`：您的登录密码（类型建议选 **Secret** 加密保存）
+   - 或使用命令行设置加密环境变量：
+     ```powershell
+     npx wrangler secret put AUTH_USERNAME
+     npx wrangler secret put AUTH_PASSWORD
+     ```
+   - 配置完成后，访问工作台与 Excel 插件会要求先登录；未认证的所有 `/api/*` 请求均直接返回 `401`。
+4. 浏览器打开 `https://excel.yourdomain.com` 即可使用（`.xlsx` 文件全程在浏览器本地解析，翻译请求自动走同域 `/api/translate/batch`）。
 
 ### 方式二：GitHub Pages 托管前端 + Cloudflare Worker 托管 API
 

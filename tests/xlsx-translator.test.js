@@ -106,4 +106,21 @@ describe('xlsx-translator', () => {
     assert.equal(info.sheets[0].columnRanges[11].col, 'L');
     assert.equal(info.sheets[0].previewRows[0].length, 12);
   });
+
+  it('supports expanding all rows when maxPreviewRows is Infinity', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('ManyRows');
+    for (let r = 1; r <= 30; r += 1) {
+      ws.getCell(r, 1).value = `Row-${r}`;
+    }
+
+    const inputBuffer = Buffer.from(await wb.xlsx.writeBuffer());
+    const defaultPreview = await inspectXlsxBuffer(inputBuffer);
+    assert.equal(defaultPreview.sheets[0].rowCount, 30);
+    assert.equal(defaultPreview.sheets[0].previewRows.length, 20);
+
+    const expandedPreview = await inspectXlsxBuffer(inputBuffer, { maxPreviewRows: Infinity });
+    assert.equal(expandedPreview.sheets[0].previewRows.length, 30);
+    assert.equal(expandedPreview.sheets[0].previewRows[29][0], 'Row-30');
+  });
 });

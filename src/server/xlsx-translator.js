@@ -80,8 +80,8 @@ export async function translateXlsxBuffer({
 /**
  * Inspect worksheet names, preview grid, and per-column non-empty ranges from an uploaded .xlsx buffer.
  */
-export async function inspectXlsxBuffer(buffer) {
+export async function inspectXlsxBuffer(buffer, options = {}) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
-  return inspectWorkbook(workbook);
+  return inspectWorkbook(workbook, options);
 }

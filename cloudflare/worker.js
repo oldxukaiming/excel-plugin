@@ -1,10 +1,16 @@
+import {
+  authorizeRequest,
+  getAuthConfig,
+  signSessionToken,
+  validateCredentials
+} from '../src/server/auth.js';
 import { SUPPORTED_LANGUAGES } from '../src/server/translators/languages.js';
 import { translateBatch, translateText } from '../src/server/translators/service.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type'
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Access-Token'
 };
 
 function jsonResponse(payload, status = 200) {
@@ -34,14 +40,67 @@ export async function handleWorkerRequest(request, env = {}) {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
+  const authConfig = getAuthConfig(env);
+
   if (request.method === 'GET' && pathname === '/api/health') {
     return jsonResponse({
       ok: true,
       service: 'excel-translator-addin-worker',
-      version: '1.1.0',
+      version: '1.2.0',
       runtime: 'cloudflare-workers',
+      authRequired: authConfig.enabled,
       timestamp: new Date().toISOString()
     });
+  }
+
+  if (request.method === 'GET' && pathname === '/api/auth/status') {
+    const auth = await authorizeRequest(request.headers, env);
+    return jsonResponse({
+      ok: true,
+      authRequired: auth.authRequired,
+      authenticated: auth.authorized,
+      username: auth.username
+    });
+  }
+
+  if (request.method === 'POST' && pathname === '/api/auth/login') {
+    if (!authConfig.enabled) {
+      return jsonResponse({
+        ok: true,
+        authRequired: false,
+        token: '',
+        username: 'guest'
+      });
+    }
+    try {
+      const body = await request.json();
+      const { username = '', password = '' } = body || {};
+      if (!validateCredentials(username, password, authConfig)) {
+        return jsonResponse({ ok: false, error: '用户名或密码错误' }, 401);
+      }
+      const ttlSeconds = 7 * 24 * 3600;
+      const token = await signSessionToken(authConfig.username, authConfig.secret, ttlSeconds);
+      return jsonResponse({
+        ok: true,
+        authRequired: true,
+        token,
+        username: authConfig.username,
+        expiresIn: ttlSeconds
+      });
+    } catch {
+      return jsonResponse({ ok: false, error: '登录请求格式无效' }, 400);
+    }
+  }
+
+  // Require valid authentication for all protected API endpoints when AUTH_PASSWORD is configured
+  if (pathname.startsWith('/api/')) {
+    const auth = await authorizeRequest(request.headers, env);
+    if (!auth.authorized) {
+      return jsonResponse(
+        { ok: false, authRequired: true, error: '访问受限，请先登录' },
+        401
+      );
+    }
   }
 
   if (request.method === 'GET' && pathname === '/api/languages') {

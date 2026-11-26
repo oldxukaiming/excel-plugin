@@ -5,6 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
+import {
+  authorizeRequest,
+  getAuthConfig,
+  signSessionToken,
+  validateCredentials
+} from './auth.js';
 import { SUPPORTED_LANGUAGES } from './translators/languages.js';
 import { translateBatch, translateText } from './translators/service.js';
 import {
@@ -28,7 +34,7 @@ export function createApp() {
   app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Access-Token');
     if (req.method === 'OPTIONS') {
       return res.sendStatus(204);
     }
@@ -36,7 +42,61 @@ export function createApp() {
   });
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, service: 'excel-translator-addin', timestamp: new Date().toISOString() });
+    const authConfig = getAuthConfig();
+    res.json({
+      ok: true,
+      service: 'excel-translator-addin',
+      version: '1.2.0',
+      authRequired: authConfig.enabled,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  app.get('/api/auth/status', async (req, res) => {
+    const auth = await authorizeRequest(req.headers);
+    res.json({
+      ok: true,
+      authRequired: auth.authRequired,
+      authenticated: auth.authorized,
+      username: auth.username
+    });
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    const authConfig = getAuthConfig();
+    if (!authConfig.enabled) {
+      return res.json({
+        ok: true,
+        authRequired: false,
+        token: '',
+        username: 'guest'
+      });
+    }
+    const { username = '', password = '' } = req.body || {};
+    if (!validateCredentials(username, password, authConfig)) {
+      return res.status(401).json({ ok: false, error: '用户名或密码错误' });
+    }
+    const ttlSeconds = 7 * 24 * 3600;
+    const token = await signSessionToken(authConfig.username, authConfig.secret, ttlSeconds);
+    return res.json({
+      ok: true,
+      authRequired: true,
+      token,
+      username: authConfig.username,
+      expiresIn: ttlSeconds
+    });
+  });
+
+  // Protect all remaining /api/* routes when AUTH_PASSWORD is configured
+  app.use('/api', async (req, res, next) => {
+    if (req.path === '/health' || req.path === '/auth/status' || req.path === '/auth/login') {
+      return next();
+    }
+    const auth = await authorizeRequest(req.headers);
+    if (!auth.authorized) {
+      return res.status(401).json({ ok: false, authRequired: true, error: '访问受限，请先登录' });
+    }
+    return next();
   });
 
   app.get('/api/languages', (_req, res) => {
@@ -74,12 +134,14 @@ export function createApp() {
 
   app.post('/api/xlsx/inspect', async (req, res) => {
     try {
-      const { fileBase64 } = req.body || {};
+      const { fileBase64, maxPreviewRows } = req.body || {};
       if (!fileBase64 || typeof fileBase64 !== 'string') {
         return res.status(400).json({ ok: false, error: 'fileBase64 is required' });
       }
       const buffer = Buffer.from(fileBase64, 'base64');
-      const info = await inspectXlsxBuffer(buffer);
+      const info = await inspectXlsxBuffer(buffer, {
+        maxPreviewRows: maxPreviewRows === 'all' ? Infinity : Number(maxPreviewRows) || 20
+      });
       return res.json({ ok: true, ...info });
     } catch (error) {
       return res.status(400).json({ ok: false, error: error.message || 'Failed to inspect .xlsx file' });
