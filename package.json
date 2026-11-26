@@ -10,7 +10,7 @@
     "dev": "node --watch src/server/index.js",
     "test": "node --test tests",
     "build:static": "node scripts/build-static.js",
-    "cf:deploy": "wrangler deploy",
+    "cf:deploy": "wrangler deploy --keep-vars",
     "icons": "node scripts/generate-icons.js",
     "cert:gen": "node scripts/generate-certs.js",
     "cert:trust": "node scripts/generate-certs.js --install",
