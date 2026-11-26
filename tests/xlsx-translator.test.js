@@ -88,4 +88,22 @@ describe('xlsx-translator', () => {
       /B2: "1 Introduction"/
     );
   });
+
+  it('counts actual non-empty rows and columns accurately across wide sheets (> 8 columns)', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Wide');
+    for (let c = 1; c <= 12; c += 1) {
+      ws.getCell(1, c).value = `Col${c}`;
+    }
+    // Add an empty styled row far below to simulate Excel formatted blank rows
+    ws.getCell(500, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+
+    const inputBuffer = Buffer.from(await wb.xlsx.writeBuffer());
+    const info = await inspectXlsxBuffer(inputBuffer);
+    assert.equal(info.sheets[0].rowCount, 1);
+    assert.equal(info.sheets[0].columnCount, 12);
+    assert.equal(info.sheets[0].columnRanges.length, 12);
+    assert.equal(info.sheets[0].columnRanges[11].col, 'L');
+    assert.equal(info.sheets[0].previewRows[0].length, 12);
+  });
 });

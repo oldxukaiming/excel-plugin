@@ -136,6 +136,10 @@ function renderXlsxPreview(sheetName) {
   }
 
   wrap.classList.remove('hidden');
+  const shownRows = sheet.previewRows.length;
+  const shownCols = (sheet.columnRanges || []).length;
+  $('xlsxPreviewTitle').textContent =
+    `工作表「${sheet.name}」有效区域 ${sheet.rowCount} 行 × ${sheet.columnCount} 列（当前预览 ${shownRows} 行 × ${shownCols} 列，点击单元格或列标可选区）`;
   table.innerHTML = '';
 
   const thead = document.createElement('thead');
@@ -400,7 +404,7 @@ async function handleTranslatePaste() {
     return;
   }
 
-  const rows = raw.split(/\r?\n/).map((line) => line.split('\t'));
+  const rows = raw.replace(/\r?\n$/, '').split(/\r?\n/).map((line) => line.split('\t'));
   const flat = rows.flat();
   const nonEmptyIdx = [];
   flat.forEach((cell, i) => {
