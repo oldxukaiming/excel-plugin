@@ -10,7 +10,7 @@
     "dev": "node --watch src/server/index.js",
     "test": "node --test tests",
     "build:static": "node scripts/build-static.js",
-    "cf:deploy": "npx wrangler deploy",
+    "cf:deploy": "wrangler deploy",
     "icons": "node scripts/generate-icons.js",
     "cert:gen": "node scripts/generate-certs.js",
     "cert:trust": "node scripts/generate-certs.js --install",
@@ -24,7 +24,8 @@
     "express": "^4.21.1"
   },
   "devDependencies": {
-    "office-addin-dev-certs": "^2.0.1"
+    "office-addin-dev-certs": "^2.0.1",
+    "wrangler": "^3.114.17"
   },
   "engines": {
     "node": ">=20.0.0"
