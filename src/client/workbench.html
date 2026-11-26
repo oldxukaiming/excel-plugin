@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Excel 双引擎翻译工作台（免 VBA / 免共享版）</title>
+  <link rel="stylesheet" href="./workbench.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-badge">译</div>
+        <div>
+          <h1>Excel 双引擎翻译工作台</h1>
+          <p>无需 VBA、无需共享文件夹 · 支持 Bing 与 Google 引擎随时切换</p>
+        </div>
+      </div>
+      <div class="server-pill" id="serverStatus">检查服务状态...</div>
+    </header>
+
+    <section class="panel controls-panel">
+      <div class="controls-grid">
+        <div class="control-block">
+          <div class="block-label">
+            <span>翻译引擎</span>
+            <span class="tag" id="modeTag">免 Key 模式</span>
+          </div>
+          <div class="engine-group">
+            <button type="button" class="engine-btn active" data-engine="bing" id="btnBing">
+              <strong>Bing 翻译</strong>
+              <span>微软引擎</span>
+            </button>
+            <button type="button" class="engine-btn" data-engine="google" id="btnGoogle">
+              <strong>Google 翻译</strong>
+              <span>谷歌引擎</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="control-block">
+          <div class="block-label"><span>语言方向</span></div>
+          <div class="lang-pair">
+            <select id="fromLang"></select>
+            <button type="button" class="icon-btn" id="btnSwap" title="互换语言">⇄</button>
+            <select id="toLang"></select>
+          </div>
+        </div>
+      </div>
+
+      <details class="settings-details">
+        <summary>高级设置（API Key / Google 自定义端点）</summary>
+        <div class="settings-grid">
+          <label>
+            <span>Bing / Azure Translator Key（可选）</span>
+            <input type="password" id="bingApiKey" placeholder="留空使用免 Key 模式" />
+          </label>
+          <label>
+            <span>Azure Region（可选）</span>
+            <input type="text" id="bingRegion" placeholder="例如 eastasia" />
+          </label>
+          <label>
+            <span>Google Cloud API Key（可选）</span>
+            <input type="password" id="googleApiKey" placeholder="留空使用免 Key 模式" />
+          </label>
+          <label>
+            <span>Google 免 Key 自定义端点（可选）</span>
+            <input type="text" id="googleEndpoint" placeholder="默认 https://translate.googleapis.com" />
+          </label>
+        </div>
+        <div class="settings-footer">
+          <button type="button" class="btn secondary" id="btnSaveConfig">保存设置</button>
+        </div>
+      </details>
+    </section>
+
+    <nav class="tabs" role="tablist">
+      <button type="button" class="tab-btn active" data-tab="xlsx" role="tab">1. .xlsx 文件翻译（推荐）</button>
+      <button type="button" class="tab-btn" data-tab="live" role="tab">2. Excel 窗口联动</button>
+      <button type="button" class="tab-btn" data-tab="paste" role="tab">3. 复制粘贴快翻</button>
+    </nav>
+
+    <!-- Tab 1: .xlsx File Translator -->
+    <section class="panel tab-panel active" id="tab-xlsx">
+      <p class="panel-desc">
+        直接读取本地 <code>.xlsx</code> 文件，将指定单元格（如 <code>A1</code> 或 <code>A1:A20</code>）翻译填充到目标单元格（如 <code>A2</code>），生成新文件下载，完全不依赖 Excel VBA 或加载项权限。
+      </p>
+
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="xlsxFileInput" accept=".xlsx" />
+        <div id="fileSummary">点击选择或拖拽 <code>.xlsx</code> 文件到此处</div>
+      </div>
+
+      <div class="xlsx-preview-wrap hidden" id="xlsxPreviewWrap">
+        <div class="preview-header">
+          <span>表格前 8 行预览（点击单元格选中单格，点击列标选中整列非空范围）</span>
+        </div>
+        <div class="preview-scroll">
+          <table class="preview-table" id="xlsxPreviewTable"></table>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label class="field">
+          <span>工作表</span>
+          <select id="xlsxSheet">
+            <option value="">默认第一个工作表</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>源单元格 / 区域</span>
+          <input type="text" id="xlsxSource" value="A1" placeholder="如 A1 或 A1:A10" />
+        </label>
+        <label class="field">
+          <span>目标填充方式</span>
+          <select id="xlsxMode">
+            <option value="below" selected>紧邻下方（A1 → A2）</option>
+            <option value="right">紧邻右侧（A1 → B1）</option>
+            <option value="custom">自定义目标起始单元格</option>
+            <option value="replace">直接覆盖原单元格</option>
+          </select>
+        </label>
+        <label class="field hidden" id="xlsxCustomWrap">
+          <span>目标起始单元格</span>
+          <input type="text" id="xlsxCustomTarget" placeholder="如 A2 或 Sheet2!B1" />
+        </label>
+      </div>
+
+      <div class="mapping-bar">
+        映射预览：<code id="xlsxMapSrc">A1</code> → <code class="target" id="xlsxMapDst">A2</code>
+      </div>
+
+      <button type="button" class="btn primary" id="btnTranslateXlsx">翻译 .xlsx 并下载结果</button>
+    </section>
+
+    <!-- Tab 2: Live Excel Window -->
+    <section class="panel tab-panel" id="tab-live">
+      <p class="panel-desc">
+        尝试直接读取您已打开的桌面 Excel 当前选中单元格并写回目标单元格（不使用 VBA）。若本机策略也禁止外部 COM 访问，请使用“1. .xlsx 文件翻译”或“3. 复制粘贴快翻”。
+      </p>
+
+      <div class="form-row">
+        <label class="field">
+          <span>指定单元格（留空则读取当前 Excel 选中区域）</span>
+          <input type="text" id="liveSource" placeholder="留空跟随选区，或输入如 A1" />
+        </label>
+        <label class="field">
+          <span>目标填充方式</span>
+          <select id="liveMode">
+            <option value="below" selected>紧邻下方（A1 → A2）</option>
+            <option value="right">紧邻右侧（A1 → B1）</option>
+            <option value="custom">自定义目标起始单元格</option>
+            <option value="replace">直接覆盖原单元格</option>
+          </select>
+        </label>
+        <label class="field hidden" id="liveCustomWrap">
+          <span>目标起始单元格</span>
+          <input type="text" id="liveCustomTarget" placeholder="如 A2" />
+        </label>
+      </div>
+
+      <div class="btn-row">
+        <button type="button" class="btn secondary" id="btnLiveRead">读取 Excel 当前选区</button>
+        <button type="button" class="btn primary" id="btnLiveFill">翻译并写入 Excel 目标格</button>
+      </div>
+
+      <pre class="live-preview hidden" id="livePreview"></pre>
+    </section>
+
+    <!-- Tab 3: Clipboard / Grid Paste -->
+    <section class="panel tab-panel" id="tab-paste">
+      <p class="panel-desc">
+        从 Excel 复制单元格或整列文本（<code>Ctrl+C</code>）粘贴到左侧，翻译后保留行列格式，点击“复制译文”即可在 <code>A2</code> 或任意单元格直接 <code>Ctrl+V</code> 贴回。
+      </p>
+
+      <div class="paste-grid">
+        <div class="paste-col">
+          <label for="pasteInput">原文（支持多行/Tab 分列粘贴）</label>
+          <textarea id="pasteInput" rows="8" placeholder="在此粘贴 Excel 内容，例如 Hello Excel"></textarea>
+        </div>
+        <div class="paste-col">
+          <label for="pasteOutput">译文结果</label>
+          <textarea id="pasteOutput" rows="8" readonly placeholder="译文将显示在这里"></textarea>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button type="button" class="btn primary" id="btnTranslatePaste">立即翻译</button>
+        <button type="button" class="btn secondary" id="btnCopyOutput">复制译文（可直贴回 Excel）</button>
+      </div>
+    </section>
+
+    <div class="toast hidden" id="toastBanner"></div>
+  </div>
+
+  <script type="module" src="./workbench.js"></script>
+</body>
+</html>

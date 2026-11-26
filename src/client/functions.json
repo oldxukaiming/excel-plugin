@@ -1,0 +1,41 @@
+{
+  "functions": [
+    {
+      "id": "TRANSLATE",
+      "name": "TRANSLATE",
+      "description": "Translate text using switchable Bing or Google translation engines.",
+      "parameters": [
+        {
+          "name": "text",
+          "description": "Text or cell reference to translate (e.g. A1).",
+          "type": "string"
+        },
+        {
+          "name": "targetLang",
+          "description": "Target language code (default: zh-CN, e.g. en, ja, ko).",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "sourceLang",
+          "description": "Source language code (default: auto).",
+          "type": "string",
+          "optional": true
+        },
+        {
+          "name": "engine",
+          "description": "Translation engine: bing or google (default: bing).",
+          "type": "string",
+          "optional": true
+        }
+      ],
+      "result": {
+        "type": "string"
+      },
+      "options": {
+        "requiresAddress": false,
+        "stream": false
+      }
+    }
+  ]
+}

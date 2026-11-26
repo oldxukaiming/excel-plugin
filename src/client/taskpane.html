@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Excel 双引擎翻译助手</title>
+  <link rel="stylesheet" href="./taskpane.css" />
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">译</div>
+        <div>
+          <h1>Excel 翻译助手</h1>
+          <p class="subtitle" id="envBadge">等待连接 Excel...</p>
+        </div>
+      </div>
+      <span class="status-dot" id="serverStatusDot" title="本地翻译服务状态"></span>
+    </header>
+
+    <main class="app-main">
+      <!-- Engine Switcher -->
+      <section class="card">
+        <div class="section-header">
+          <span class="section-title">翻译引擎</span>
+          <span class="mode-badge" id="engineModeBadge">免 Key 模式</span>
+        </div>
+        <div class="engine-switch" role="radiogroup" aria-label="选择翻译引擎">
+          <button type="button" class="engine-btn active" data-engine="bing" id="btnEngineBing">
+            <span class="engine-name">Bing 翻译</span>
+            <span class="engine-sub">微软引擎</span>
+          </button>
+          <button type="button" class="engine-btn" data-engine="google" id="btnEngineGoogle">
+            <span class="engine-name">Google 翻译</span>
+            <span class="engine-sub">谷歌引擎</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Language Selector -->
+      <section class="card">
+        <div class="section-header">
+          <span class="section-title">语言方向</span>
+        </div>
+        <div class="lang-row">
+          <div class="field">
+            <label for="sourceLang">源语言</label>
+            <select id="sourceLang"></select>
+          </div>
+          <button type="button" class="swap-btn" id="btnSwapLang" title="互换语言" aria-label="互换语言">
+            ⇄
+          </button>
+          <div class="field">
+            <label for="targetLang">目标语言</label>
+            <select id="targetLang"></select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Cell Mapping (A1 -> A2) -->
+      <section class="card">
+        <div class="section-header">
+          <span class="section-title">单元格映射</span>
+          <button type="button" class="link-btn" id="btnReadSelection">读取当前选区</button>
+        </div>
+
+        <div class="field">
+          <label for="sourceAddress">源单元格 / 区域</label>
+          <input type="text" id="sourceAddress" value="A1" placeholder="例如 A1 或 A1:A5" />
+        </div>
+
+        <div class="field">
+          <label for="targetMode">填充目标位置</label>
+          <select id="targetMode">
+            <option value="below" selected>紧邻下方单元格（如 A1 → A2）</option>
+            <option value="right">紧邻右侧单元格（如 A1 → B1）</option>
+            <option value="custom">指定目标起始单元格</option>
+            <option value="replace">直接覆盖原单元格</option>
+          </select>
+        </div>
+
+        <div class="field hidden" id="customTargetGroup">
+          <label for="customTargetAddress">目标起始单元格</label>
+          <input type="text" id="customTargetAddress" placeholder="例如 A2 或 C1 或 Sheet2!A1" />
+        </div>
+
+        <div class="mapping-preview" id="mappingPreview">
+          <span class="chip" id="previewSource">A1</span>
+          <span class="arrow">→</span>
+          <span class="chip target" id="previewTarget">A2</span>
+        </div>
+
+        <div class="preview-box">
+          <div class="preview-label">源文本预览</div>
+          <div class="preview-text" id="sourceTextPreview">选中单元格后将自动显示内容</div>
+        </div>
+
+        <button type="button" class="primary-btn" id="btnTranslateFill">
+          翻译并填充到目标单元格
+        </button>
+
+        <div class="quick-actions">
+          <button type="button" class="secondary-btn" id="btnPreviewOnly">仅预览译文</button>
+          <label class="checkbox-inline">
+            <input type="checkbox" id="autoSyncSelection" checked />
+            <span>跟随 Excel 选区</span>
+          </label>
+        </div>
+
+        <div class="preview-box hidden" id="resultPreviewBox">
+          <div class="preview-label" id="resultPreviewLabel">译文结果</div>
+          <div class="preview-text result" id="resultTextPreview"></div>
+        </div>
+      </section>
+
+      <!-- Status / Log Banner -->
+      <div class="status-banner hidden" id="statusBanner" role="status"></div>
+
+      <!-- Advanced Settings -->
+      <section class="card collapsible">
+        <button type="button" class="collapse-toggle" id="btnToggleSettings" aria-expanded="false">
+          <span>高级设置（API Key / 自定义端点）</span>
+          <span class="chevron" id="settingsChevron">▸</span>
+        </button>
+        <div class="settings-body hidden" id="settingsBody">
+          <p class="hint">
+            默认采用免 Key 模式运行。如遇网络限流或需企业级稳定性，可填写官方 API Key（仅保存在本地浏览器）。
+          </p>
+
+          <div class="field">
+            <label for="bingApiKey">Bing / Azure Translator Key（可选）</label>
+            <input type="password" id="bingApiKey" placeholder="留空则使用免 Key 模式" />
+          </div>
+
+          <div class="field">
+            <label for="bingRegion">Azure Region（可选）</label>
+            <input type="text" id="bingRegion" placeholder="例如 eastasia 或 global" />
+          </div>
+
+          <div class="field">
+            <label for="googleApiKey">Google Cloud Translation Key（可选）</label>
+            <input type="password" id="googleApiKey" placeholder="留空则使用免 Key 模式" />
+          </div>
+
+          <div class="field">
+            <label for="googleEndpoint">Google 免 Key 自定义端点（可选）</label>
+            <input type="text" id="googleEndpoint" placeholder="默认 https://translate.googleapis.com" />
+          </div>
+
+          <div class="settings-actions">
+            <button type="button" class="secondary-btn" id="btnSaveSettings">保存设置</button>
+            <button type="button" class="secondary-btn" id="btnTestServer">测试服务连接</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Custom Function Tip -->
+      <section class="card formula-tip">
+        <div class="section-title">自定义公式（可选）</div>
+        <p class="hint">
+          支持在单元格直接使用公式：<code>=XLTRANS.TRANSLATE(A1, "zh-CN", "auto", "bing")</code>，可随时将第 4 参数切换为 <code>"google"</code>。
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="./taskpane.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "excel-translator-addin",
+  "version": "1.0.0",
+  "description": "Excel Office.js Add-in for translating cell text with switchable Bing and Google translation engines",
+  "main": "src/server/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server/index.js",
+    "start:http": "node src/server/index.js --http",
+    "dev": "node --watch src/server/index.js",
+    "test": "node --test tests",
+    "icons": "node scripts/generate-icons.js",
+    "cert:gen": "node scripts/generate-certs.js",
+    "cert:trust": "node scripts/generate-certs.js --install",
+    "addin:register": "node scripts/register-addin.js",
+    "addin:unregister": "node scripts/unregister-addin.js",
+    "vba:build": "powershell -ExecutionPolicy Bypass -File scripts/build-xlam.ps1 -InstallToAddIns",
+    "validate": "node scripts/validate-manifest.js"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "express": "^4.21.1"
+  },
+  "devDependencies": {
+    "office-addin-dev-certs": "^2.0.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
