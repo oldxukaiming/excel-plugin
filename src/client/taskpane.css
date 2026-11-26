@@ -30,9 +30,10 @@ body {
 }
 
 .app-shell {
-  max-width: 420px;
-  margin: 0 auto;
-  padding: 12px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: clamp(10px, 2vw, 20px);
 }
 
 .app-header {
@@ -128,7 +129,7 @@ body {
 
 .engine-switch {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -171,7 +172,7 @@ body {
 
 .lang-row {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 6px;
   align-items: end;
 }
@@ -199,6 +200,7 @@ body {
   flex-direction: column;
   gap: 4px;
   margin-bottom: 8px;
+  min-width: 0;
 }
 
 .lang-row .field {
@@ -215,6 +217,7 @@ input[type="text"],
 input[type="password"],
 select {
   width: 100%;
+  min-width: 0;
   height: 32px;
   padding: 0 8px;
   border: 1px solid var(--border);
@@ -420,4 +423,33 @@ select:focus {
 
 .hidden {
   display: none !important;
+}
+
+@media (min-width: 720px) {
+  .app-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+  }
+
+  .app-main > :not(.compact-card) {
+    grid-column: 1 / -1;
+  }
+
+  .settings-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 10px 14px;
+  }
+
+  .settings-body .hint,
+  .settings-body .settings-actions {
+    grid-column: 1 / -1;
+    margin-bottom: 0;
+  }
+
+  .settings-body .field {
+    margin-bottom: 0;
+  }
 }
