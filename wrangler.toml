@@ -1,4 +1,4 @@
-name = "excel-translator-addin"
+name = "excel-plugin"
 main = "cloudflare/worker.js"
 compatibility_date = "2024-11-01"
 

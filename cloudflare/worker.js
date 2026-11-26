@@ -38,6 +38,7 @@ export async function handleWorkerRequest(request, env = {}) {
     return jsonResponse({
       ok: true,
       service: 'excel-translator-addin-worker',
+      version: '1.1.0',
       runtime: 'cloudflare-workers',
       timestamp: new Date().toISOString()
     });
